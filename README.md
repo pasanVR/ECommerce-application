@@ -7,21 +7,6 @@ with stock validation, and a guarded order lifecycle.
 Built with **Clean Architecture**, **EF Core (SQLite)**, **Serilog**, global
 exception handling, and **Swagger** for interactive testing.
 
----
-
-## Table of contents
-1. [Tech stack](#tech-stack)
-2. [Architecture](#architecture)
-3. [Prerequisites](#prerequisites)
-4. [Setup & run](#setup--run)
-5. [Connection string guidance](#connection-string-guidance)
-6. [Database & migration commands](#database--migration-commands)
-7. [Default admin & auth flow](#default-admin--auth-flow)
-8. [API reference](#api-reference)
-9. [Order lifecycle](#order-lifecycle)
-10. [Architecture decisions & trade-offs](#architecture-decisions--trade-offs)
-
----
 
 ## Tech stack
 
