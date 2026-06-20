@@ -1,0 +1,284 @@
+@page
+@{
+    Layout = null;
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>E-commerce Application</title>
+    <link rel="stylesheet" href="/css/site.css" />
+    <script src="/js/api.js"></script>
+    <script>
+        // Route guard: no token -> go to the login page before rendering anything.
+        if (!Session.token) location.href = '/Login';
+    </script>
+</head>
+<body>
+    <header>
+        <h1>🛒 E-commerce Application</h1>
+        <div id="who"></div>
+    </header>
+
+    <main>
+        <!-- PRODUCTS -->
+        <section class="card">
+            <h2>Products</h2>
+            <div id="adminProductForm" class="hidden">
+                <div class="row">
+                    <div><label>Name</label><input id="pName" /></div>
+                    <div><label>Price</label><input id="pPrice" type="number" step="0.01" value="9.99" /></div>
+                </div>
+                <div class="row">
+                    <div><label>Stock</label><input id="pStock" type="number" value="10" /></div>
+                    <div><label>Description</label><input id="pDesc" /></div>
+                </div>
+                <button onclick="createProduct()">Add product (admin)</button>
+                <div class="msg" id="prodMsg"></div>
+            </div>
+            <button class="ghost" onclick="loadProducts()">Refresh</button>
+            <table>
+                <thead><tr><th>Name</th><th>Price</th><th>Stock</th><th>Description</th><th>Cart</th><th id="thAdmin" class="hidden">Actions</th></tr></thead>
+                <tbody id="productRows"></tbody>
+            </table>
+        </section>
+
+        <!-- CART (customer only; shown only when it has items) -->
+        <section class="card hidden" id="cartSection">
+            <h2>🛒 Your cart</h2>
+            <table>
+                <thead><tr><th>Product</th><th>Price</th><th>Qty</th><th>Line total</th><th></th></tr></thead>
+                <tbody id="cartRows"></tbody>
+            </table>
+            <div class="row" style="margin-top:10px; align-items:center; grid-template-columns: 1fr auto;">
+                <div><b>Total: $<span id="cartTotal">0.00</span></b></div>
+                <button onclick="placeOrder()">Place order</button>
+            </div>
+            <div class="msg" id="cartMsg"></div>
+        </section>
+
+        <!-- ORDERS -->
+        <section class="card">
+            <h2 id="ordersTitle">Orders</h2>
+            <button class="ghost" onclick="loadOrders()">Refresh orders</button>
+            <table>
+                <thead><tr><th id="thOrderEdit" class="hidden">Manage</th><th>Order</th><th>Customer</th><th>Status</th><th>Total</th><th>Items</th></tr></thead>
+                <tbody id="orderRows"></tbody>
+            </table>
+            <div class="msg" id="orderMsg"></div>
+        </section>
+    </main>
+
+    <script>
+        function renderSession() {
+            const admin = Session.isAdmin();
+            document.getElementById('who').innerHTML =
+                `Signed in as <b>${Session.role}</b> · <a href="#" onclick="logout()">logout</a> · <a href="/swagger">Swagger</a>`;
+            document.getElementById('adminProductForm').classList.toggle('hidden', !admin);
+            document.getElementById('thAdmin').classList.toggle('hidden', !admin);
+            document.getElementById('thOrderEdit').classList.toggle('hidden', !admin);
+            document.getElementById('ordersTitle').textContent = admin ? 'All orders (admin)' : 'My orders';
+            loadProducts();
+            loadOrders();
+        }
+
+        function logout() { Session.clear(); location.href = '/Login'; }
+
+        let productCache = {}; // id -> product, used to repopulate edit rows without an extra fetch
+
+        async function loadProducts() {
+            const rows = document.getElementById('productRows'); rows.innerHTML = '';
+            try {
+                const products = await api('GET', '/products');
+                productCache = {};
+                for (const p of products) {
+                    productCache[p.id] = p;
+                    rows.appendChild(buildProductRow(p));
+                }
+                if (!products.length) rows.innerHTML = '<tr><td colspan="6" class="muted">No products yet.</td></tr>';
+                renderCart(); // refresh cart in case stock changed
+            } catch (e) { rows.innerHTML = `<tr><td colspan="6" class="msg err">${e.message}</td></tr>`; }
+        }
+
+        function buildProductRow(p) {
+            const tr = document.createElement('tr');
+            tr.id = 'prow_' + p.id;
+            let cells = `<td>${escapeHtml(p.name)}</td><td>$${p.price.toFixed(2)}</td><td>${p.stock}</td><td>${escapeHtml(p.description)}</td>`;
+            cells += Session.isAdmin()
+                ? `<td class="muted">—</td><td>
+                     <button class="ghost" onclick="editProduct('${p.id}')">✏️ Edit</button>
+                     <button class="ghost" onclick="del('${p.id}')">Delete</button>
+                   </td>`
+                : (p.stock > 0
+                    ? `<td><input type="number" min="1" max="${p.stock}" value="1" id="q_${p.id}" style="width:60px"> <button onclick="addToCart('${p.id}')">Add to cart</button></td>`
+                    : `<td><span class="muted">Out of stock</span> <button disabled>Add to cart</button></td>`);
+            tr.innerHTML = cells;
+            return tr;
+        }
+
+        function editProduct(id) {
+            const p = productCache[id];
+            const tr = document.getElementById('prow_' + id);
+            if (!p || !tr) return;
+            tr.innerHTML =
+                `<td>${escapeHtml(p.name)}</td><td>$${p.price.toFixed(2)}</td>` +
+                `<td><input type="number" min="0" id="eStock_${id}" value="${p.stock}" style="width:70px"></td>` +
+                `<td><input type="text" id="eDesc_${id}" value="${escapeHtml(p.description)}" style="width:100%"></td>` +
+                `<td class="muted">—</td>` +
+                `<td>
+                   <button onclick="saveProduct('${id}')">Save</button>
+                   <button class="ghost" onclick="loadProducts()">Cancel</button>
+                 </td>`;
+        }
+
+        async function saveProduct(id) {
+            const p = productCache[id];
+            if (!p) return;
+            const stock = parseInt(document.getElementById('eStock_' + id).value, 10);
+            const description = document.getElementById('eDesc_' + id).value;
+
+            if (Number.isNaN(stock) || stock < 0) { setMsg('prodMsg', 'Stock must be a non-negative number.', false); return; }
+
+            try {
+                // Update endpoint expects the full product payload; keep name/price unchanged.
+                await api('PUT', '/products/' + id, { name: p.name, description, price: p.price, stock });
+                setMsg('prodMsg', 'Product updated.', true);
+                loadProducts();
+            } catch (e) { setMsg('prodMsg', e.message, false); }
+        }
+
+        async function createProduct() {
+            try {
+                await api('POST', '/products', { name: pName.value, description: pDesc.value, price: parseFloat(pPrice.value), stock: parseInt(pStock.value) });
+                setMsg('prodMsg', 'Product created.', true); pName.value = ''; loadProducts();
+            } catch (e) { setMsg('prodMsg', e.message, false); }
+        }
+        async function del(id) {
+            try { await api('DELETE', '/products/' + id); loadProducts(); }
+            catch (e) { setMsg('prodMsg', e.message, false); }
+        }
+        // ---- Cart (customer only) ----
+        let cart = {}; // productId -> quantity
+
+        function addToCart(id) {
+            const p = productCache[id];
+            if (!p) return;
+            const requested = parseInt(document.getElementById('q_' + id).value, 10) || 1;
+            const current = cart[id] || 0;
+            const qty = Math.min(current + requested, p.stock); // never exceed known stock
+
+            if (qty <= 0) return;
+            cart[id] = qty;
+            renderCart();
+            setMsg('cartMsg', `Added ${escapeHtml(p.name)} to cart.`, true);
+        }
+
+        function removeFromCart(id) {
+            delete cart[id];
+            renderCart();
+        }
+
+        function setCartQty(id, qty) {
+            const p = productCache[id];
+            if (!p) return;
+            qty = parseInt(qty, 10);
+            if (Number.isNaN(qty) || qty < 1) qty = 1;
+            if (qty > p.stock) qty = p.stock;
+            cart[id] = qty;
+            renderCart();
+        }
+
+        function renderCart() {
+            const section = document.getElementById('cartSection');
+            const rows = document.getElementById('cartRows');
+            rows.innerHTML = '';
+            let total = 0;
+
+            for (const id of Object.keys(cart)) {
+                const p = productCache[id];
+                if (!p) { delete cart[id]; continue; } // product no longer exists/visible
+                if (cart[id] > p.stock) cart[id] = p.stock; // stock may have dropped since adding
+                if (cart[id] <= 0) { delete cart[id]; continue; }
+                const qty = cart[id];
+                const lineTotal = p.price * qty;
+                total += lineTotal;
+
+                const tr = document.createElement('tr');
+                tr.innerHTML =
+                    `<td>${escapeHtml(p.name)}</td><td>$${p.price.toFixed(2)}</td>` +
+                    `<td><input type="number" min="1" max="${p.stock}" value="${qty}" style="width:60px" onchange="setCartQty('${id}', this.value)"></td>` +
+                    `<td>$${lineTotal.toFixed(2)}</td>` +
+                    `<td><button class="ghost" onclick="removeFromCart('${id}')">✕ Remove</button></td>`;
+                rows.appendChild(tr);
+            }
+
+            section.classList.toggle('hidden', Object.keys(cart).length === 0);
+            document.getElementById('cartTotal').textContent = total.toFixed(2);
+        }
+
+
+        async function placeOrder() {
+            const items = Object.entries(cart).map(([productId, quantity]) => ({ productId, quantity }));
+            if (!items.length) return;
+
+            try {
+                await api('POST', '/orders', { items });
+                cart = {};
+                renderCart();
+                setMsg('orderMsg', 'Order placed.', true);
+                loadProducts(); loadOrders();
+            } catch (e) { setMsg('cartMsg', e.message, false); }
+        }
+
+        // Valid next actions for each status, mirroring the server-side lifecycle rules.
+        const NEXT_ACTIONS = {
+            Pending:   ['Pay', 'Cancel'],
+            Paid:      ['Ship', 'Cancel'],
+            Shipped:   ['Deliver'],
+            Delivered: [],
+            Cancelled: []
+        };
+
+        async function loadOrders() {
+            const admin = Session.isAdmin();
+            const rows = document.getElementById('orderRows'); rows.innerHTML = '';
+            try {
+                const orders = await api('GET', admin ? '/orders' : '/orders/mine');
+                for (const o of orders) {
+                    const items = o.items.map(i => `${i.quantity}× ${escapeHtml(i.productName)}`).join(', ');
+                    const tr = document.createElement('tr');
+
+                    let editCell = '';
+                    if (admin) {
+                        const actions = NEXT_ACTIONS[o.status] || [];
+                        const panel = actions.length
+                            ? actions.map(a => `<button class="ghost" onclick="status('${o.id}','${a}')">${a}</button>`).join('')
+                            : '<span class="muted">No actions (final state)</span>';
+                        editCell =
+                            `<td><button class="ghost" onclick="toggleEdit('${o.id}')">✏️ Edit</button>` +
+                            `<div id="act_${o.id}" class="hidden" style="margin-top:6px">${panel}</div></td>`;
+                    }
+
+                    tr.innerHTML = editCell +
+                        `<td class="muted">${o.id.slice(0,8)}</td><td>${escapeHtml(o.customerName)}</td>` +
+                        `<td><span class="pill">${o.status}</span></td><td>$${o.totalAmount.toFixed(2)}</td><td>${items}</td>`;
+                    rows.appendChild(tr);
+                }
+                if (!orders.length) rows.innerHTML = `<tr><td colspan="${admin ? 6 : 5}" class="muted">No orders yet.</td></tr>`;
+            } catch (e) { rows.innerHTML = `<tr><td colspan="${admin ? 6 : 5}" class="msg err">${e.message}</td></tr>`; }
+        }
+
+        function toggleEdit(id) {
+            document.getElementById('act_' + id)?.classList.toggle('hidden');
+        }
+
+        async function status(id, action) {
+            try { await api('PATCH', `/orders/${id}/status`, { action }); setMsg('orderMsg', `Order ${action} ✓`, true); loadOrders(); }
+            catch (e) { setMsg('orderMsg', e.message, false); }
+        }
+
+        if (Session.token) renderSession();
+    </script>
+</body>
+</html>
