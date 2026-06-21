@@ -4,7 +4,7 @@ A secure, layered ASP.NET Core (.NET 9) backend for an e-commerce platform: JWT
 authentication with Admin/Customer roles, product management, order processing
 with stock validation, and a guarded order lifecycle.
 
-Built with **Clean Architecture**, **EF Core (SQLite)**, **Serilog**, global
+Built with **Clean Architecture**, **EF Core**, **Serilog**, global
 exception handling, and **Swagger** for interactive testing.
 
 
