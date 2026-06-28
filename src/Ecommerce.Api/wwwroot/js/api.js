@@ -21,8 +21,19 @@ async function api(method, path, body) {
 
     const text = await res.text();
     const data = text ? JSON.parse(text) : null;
-    if (!res.ok) throw new Error((data && data.error) || (res.status + ' ' + res.statusText));
+    if (!res.ok) throw new Error(extractErrorMessage(data, res));
     return data;
+}
+
+function extractErrorMessage(data, res) {
+    if (!data) return res.status + ' ' + res.statusText;
+    if (data.error) return data.error;
+    if (data.errors) {
+        const messages = Object.values(data.errors).flat();
+        if (messages.length) return messages.join(' ');
+    }
+    if (data.title) return data.title;
+    return res.status + ' ' + res.statusText;
 }
 
 function setMsg(id, text, ok) {
