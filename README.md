@@ -4,24 +4,9 @@ A secure, layered ASP.NET Core (.NET 9) backend for an e-commerce platform: JWT
 authentication with Admin/Customer roles, product management, order processing
 with stock validation, and a guarded order lifecycle.
 
-Built with **Clean Architecture**, **EF Core (SQLite)**, **Serilog**, global
+Built with **Clean Architecture**, **EF Core**, **Serilog**, global
 exception handling, and **Swagger** for interactive testing.
 
----
-
-## Table of contents
-1. [Tech stack](#tech-stack)
-2. [Architecture](#architecture)
-3. [Prerequisites](#prerequisites)
-4. [Setup & run](#setup--run)
-5. [Connection string guidance](#connection-string-guidance)
-6. [Database & migration commands](#database--migration-commands)
-7. [Default admin & auth flow](#default-admin--auth-flow)
-8. [API reference](#api-reference)
-9. [Order lifecycle](#order-lifecycle)
-10. [Architecture decisions & trade-offs](#architecture-decisions--trade-offs)
-
----
 
 ## Tech stack
 
@@ -62,3 +47,4 @@ src/
 Order-status transitions and stock guards live on the **domain entities**
 (`Order.MarkAsPaid/Ship/Deliver/Cancel`, `Product.ReduceStock`), so the rules
 cannot be bypassed by application code.
+
